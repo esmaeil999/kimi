@@ -4,61 +4,50 @@ on:
   workflow_dispatch:
     inputs:
       instrument:
-        description: "Instrument (e.g. EURUSD, GBPUSD, XAUUSD)"
+        description: 'Instrument (e.g. EURUSD)'
         required: true
-        default: "EURUSD"
+        default: 'EURUSD'
       from:
-        description: "Start time GMT (yyyy-MM-dd HH:mm:ss)"
+        description: 'Start (GMT), yyyy-MM-dd HH:mm:ss'
         required: true
-        default: "2019-01-01 00:00:00"
+        default: '2019-01-01 00:00:00'
       to:
-        description: "End time GMT (yyyy-MM-dd HH:mm:ss)"
+        description: 'End (GMT), yyyy-MM-dd HH:mm:ss'
         required: true
-        default: "2019-02-01 00:00:00"
-      chunk_hours:
-        description: "Hours downloaded per history request"
-        required: true
-        default: "6"
+        default: '2019-02-01 00:00:00'
 
 jobs:
   export:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # هر جاب در GitHub حداکثر ~۶ ساعت
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up JDK 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: '11'
+          cache: maven
 
-      - name: Download JForex API
-        run: bash scripts/download-deps.sh
-
-      - name: Build
-        run: bash scripts/build.sh
+      - name: Compile and resolve runtime classpath
+        run: |
+          mvn -B compile
+          mvn -B dependency:build-classpath -Dmdep.outputFile=target/cp.txt
 
       - name: Run tick export
         env:
           JFOREX_USERNAME: ${{ secrets.JFOREX_USERNAME }}
           JFOREX_PASSWORD: ${{ secrets.JFOREX_PASSWORD }}
-          JFOREX_INSTRUMENT: ${{ inputs.instrument }}
-          JFOREX_FROM: ${{ inputs.from }}
-          JFOREX_TO: ${{ inputs.to }}
-          JFOREX_CHUNK_HOURS: ${{ inputs.chunk_hours }}
+          INSTRUMENT: ${{ inputs.instrument }}
+          FROM_STR: ${{ inputs.from }}
+          TO_STR: ${{ inputs.to }}
+          OUT_FILE: output/ticks.csv
         run: |
-          SAFE_NAME=$(echo "${{ inputs.instrument }}" | tr -d '/_')
-          export JFOREX_OUT_FILE="output/${SAFE_NAME}_ticks.csv"
-          echo "Output file: $JFOREX_OUT_FILE"
-          bash scripts/run.sh
+          mkdir -p output
+          java -cp "target/classes:$(cat target/cp.txt)" StrategyRunner
 
       - name: Upload CSV artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ticks-${{ github.run_number }}
+          name: tick-csv
           path: output/*.csv
-          if-no-files-found: warn
-          retention-days: 30
